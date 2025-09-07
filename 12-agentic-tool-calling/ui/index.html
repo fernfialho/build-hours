@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentic Tool Calling — UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+      html, body { height: 100%; }
+      body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+      .scroll-area { scrollbar-width: thin; }
+      .bubble { max-width: 70ch; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    </style>
+  </head>
+  <body class="bg-slate-50 min-h-full">
+    <header class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white">
+      <div class="mx-auto max-w-7xl px-4 py-6">
+        <h1 class="text-2xl font-bold">Agentic Tool Calling</h1>
+        <p class="opacity-90">Chat and Tasks with live streaming + tool results</p>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl px-4 py-6">
+      <!-- Server config -->
+      <section class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-xl shadow p-4">
+          <h2 class="font-semibold mb-3">Chat Server</h2>
+          <div class="flex items-center gap-2">
+            <input id="chatBase" class="w-full rounded border-slate-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="http://localhost:8000" />
+            <button id="saveChatBase" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Save</button>
+          </div>
+          <p class="text-sm text-slate-500 mt-2">POST <span class="mono">/</span> returns SSE stream.</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <h2 class="font-semibold mb-3">Tasks Server</h2>
+          <div class="flex items-center gap-2">
+            <input id="tasksBase" class="w-full rounded border-slate-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="http://localhost:8000" />
+            <button id="saveTasksBase" class="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Save</button>
+          </div>
+          <p class="text-sm text-slate-500 mt-2">POST <span class="mono">/tasks</span>, subscribe <span class="mono">/events</span>.</p>
+        </div>
+      </section>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <!-- Chat Column -->
+        <section class="bg-white rounded-xl shadow flex flex-col min-h-[70vh]">
+          <div class="border-b p-4 flex items-center justify-between">
+            <h2 class="font-semibold">Chat</h2>
+            <div class="text-xs text-slate-500 flex items-center gap-3">
+              <div>conversationId: <span id="chatConversation" class="mono">(none)</span></div>
+              <button id="resetConversation" class="text-indigo-600 hover:underline">Reset</button>
+            </div>
+          </div>
+
+          <div id="chatScroll" class="flex-1 overflow-auto scroll-area p-4 space-y-3">
+            <!-- messages appear here -->
+          </div>
+
+          <form id="chatForm" class="border-t p-4 flex items-start gap-3">
+            <textarea id="chatInput" rows="2" class="flex-1 rounded border-slate-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Ask something…"></textarea>
+            <button id="chatSend" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Send</button>
+          </form>
+        </section>
+
+        <!-- Tasks Column -->
+        <section class="bg-white rounded-xl shadow flex flex-col min-h-[70vh]">
+          <div class="border-b p-4 flex items-center justify-between">
+            <h2 class="font-semibold">Tasks</h2>
+            <div class="text-xs text-slate-500">listens to <span class="mono">/events</span></div>
+          </div>
+
+          <form id="taskForm" class="p-4 flex items-start gap-3">
+            <textarea id="taskInput" rows="2" class="flex-1 rounded border-slate-300 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Describe a multi-step task…"></textarea>
+            <button id="taskCreate" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700">Create Task</button>
+          </form>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
+            <div>
+              <h3 class="font-semibold mb-2">Todos</h3>
+              <ul id="todoList" class="space-y-2">
+                <!-- todos here -->
+              </ul>
+            </div>
+            <div>
+              <h3 class="font-semibold mb-2">Task Log</h3>
+              <div id="taskLog" class="border rounded-lg p-3 h-80 overflow-auto scroll-area bg-slate-50 mono text-sm"></div>
+            </div>
+          </div>
+
+          <div class="border-t p-3 text-xs text-slate-500">
+            Active task: <span id="activeTaskId" class="mono">(none)</span>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+  </html>
+

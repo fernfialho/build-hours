@@ -111,6 +111,16 @@ def synthesize_tool_result_text(name: str, result) -> str:
             if city and parts:
                 return f"Weather in {city}: {parts}."
             return "Weather retrieved."
+
+        if n == "get_time" and isinstance(result, dict):
+            loc = result.get("location_resolved") or result.get("tz") or "location"
+            fmt = result.get("formatted")
+            abbr = result.get("abbr") or ""
+            if fmt and abbr:
+                return f"Time in {loc}: {fmt} ({abbr})."
+            if fmt:
+                return f"Time in {loc}: {fmt}."
+            return f"Time in {loc} available."
     except Exception:
         pass
 
