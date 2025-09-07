@@ -26,11 +26,12 @@ events_q: asyncio.Queue[bytes] = asyncio.Queue()
 app = FastAPI()
 
 
-async def worker(task: Task, prev_id):
+async def worker(task: Task, prev_id, conversation_id):
     run = Runner.run_streamed(
         agent,
         input=task.items,
         previous_response_id=prev_id,
+        conversation_id=conversation_id,
         context=task,
         max_turns=100,
     )
@@ -50,13 +51,14 @@ async def post_create_task(req: Request):
     body = await req.json()
     items = body.get("items", [])
     previous_response_id = body.get("previousResponseId")
+    conversation_id = body.get("conversationId")
 
     # create & publish task object
     t = Task(id=uuid.uuid4().hex, items=items)
     tasks[t.id] = t
     await publish("task.created", {"task": {"id": t.id}})
 
-    asyncio.create_task(worker(t, previous_response_id))  # asyncio task
+    asyncio.create_task(worker(t, previous_response_id, conversation_id))  # asyncio task
     return {"task_id": t.id}
 
 

@@ -15,6 +15,12 @@ from functools import wraps
 import inspect
 from openai import OpenAI
 
+# Load OPENAI_API_KEY from local secrets if available
+try:  # noqa: F401
+    import bootstrap_secrets  # type: ignore
+except Exception:
+    pass
+
 COLOR_MAP = {
     "red": "31",
     "green": "32",
@@ -36,6 +42,8 @@ def color(text, color_name):
 def run_demo_loop(agent: Agent):
     import sys
 
+    conversation_id = None
+
     async def main():
         previous_response_id = None
         while True:
@@ -47,14 +55,33 @@ def run_demo_loop(agent: Agent):
             if user_input.strip().lower() in {"exit", "quit"}:
                 print("Exiting.")
                 break
+            # CLI helpers for conversation management
+            if user_input.strip().lower() == "/new":
+                nonlocal conversation_id
+                conversation_id = None
+                previous_response_id = None
+                print("(started a new conversation)")
+                continue
+            if user_input.strip().lower() == "/id":
+                print(f"conversationId: {conversation_id or '(none)'}")
+                continue
             run = Runner.run_streamed(
                 agent,
                 input=user_input,
                 previous_response_id=previous_response_id,
+                conversation_id=conversation_id,
             )
             try:
                 async for ev in run.stream_events():
                     if ev.type == "raw_response_event":
+                        # Capture conversation id from streaming events
+                        etype = getattr(ev.data, "type", None)
+                        if etype == "response.created":
+                            resp = getattr(ev.data, "response", None)
+                            conv = getattr(resp, "conversation", None)
+                            cid = getattr(conv, "id", None) if conv is not None else None
+                            if cid:
+                                conversation_id = cid
                         if isinstance(ev.data, ResponseOutputItemAddedEvent):
                             handle_event_added(ev.data)
                         elif isinstance(ev.data, ResponseOutputItemDoneEvent):
