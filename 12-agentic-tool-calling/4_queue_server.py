@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from agents import Runner
-from utils import encode_sse
+from utils import encode_sse, synthesize_tool_result_text
 from server_agents import agent
 
 
@@ -37,10 +37,27 @@ async def worker(task: Task, prev_id, conversation_id):
     )
     async for ev in run.stream_events():
         if ev.type == "raw_response_event":
-            await publish(
-                "task.updated",
-                {"task_id": task.id, "event": ev.data.to_dict()},
-            )
+            data = ev.data.to_dict() if hasattr(ev.data, "to_dict") else getattr(ev.data, "__dict__", {})
+            if not data:
+                from utils import to_dict as _to_dict
+
+                data = _to_dict(ev.data)
+            # Console hint for synthetic tool results
+            if isinstance(data, dict) and data.get("type") == "function.tool_result":
+                try:
+                    import json as _json
+
+                    print(f"[tool_result task={task.id}]", data.get("name"), _json.dumps(data.get("result"), ensure_ascii=False))
+                except Exception:
+                    print(f"[tool_result task={task.id}]", data)
+            await publish("task.updated", {"task_id": task.id, "event": data})
+            # Also publish a friendly synthesized message
+            if isinstance(data, dict) and data.get("type") == "function.tool_result":
+                text = synthesize_tool_result_text(str(data.get("name")), data.get("result"))
+                await publish(
+                    "task.updated",
+                    {"task_id": task.id, "event": {"type": "synthesized.message", "text": text}},
+                )
 
     task.status = "done"
     await publish("task.updated", {"task_id": task.id, "status": "done"})

@@ -1,3 +1,4 @@
+import os
 from agents import Agent, function_tool
 from agents.model_settings import ModelSettings
 from openai.types.shared.reasoning import Reasoning
@@ -70,16 +71,20 @@ def send_email(from_addr: str, to_addr: str, subject: str, body: str) -> Dict[st
     return mock_api.send_email(from_addr, to_addr, subject, body)
 
 
+MODEL = os.getenv("AGENT_MODEL", "o3")
+# o3 requires reasoning.summary="detailed"; use concise for others
+reasoning_summary = "detailed" if MODEL.startswith("o3") else "concise"
+
 agent = Agent(
     name="assistant",
-    instructions="""
-    You are a helpful assistant that can use tools.
-    Always create a plan with TODOs before executing any task, and check them off as you go.
-    You are running in non-interactive mode, so you must reach a conclusion and any disambiguation using the tools at your disposal.
-    Your final output message should be a very brief summary of the conclusion of the task. Do not output a final message until you have completely concluded the task.
-    """.strip(),
-    model="o3",
-    model_settings=ModelSettings(reasoning=Reasoning(summary="detailed")),
+    instructions=(
+        "You can and should call tools to gather facts and take actions. "
+        "Begin by planning with concise TODOs, then execute them, checking off as you go. "
+        "When tools help, call them; after tool use, produce a brief, direct answer. "
+        "Operate autonomously to reach a conclusion."
+    ),
+    model=MODEL,
+    model_settings=ModelSettings(reasoning=Reasoning(summary=reasoning_summary)),
     tools=[
         get_weather,
         search_open_tickets,

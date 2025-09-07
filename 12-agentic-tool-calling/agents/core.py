@@ -75,6 +75,7 @@ def _build_function_tools(tools: Iterable[Callable[..., Any]]) -> List[Dict[str,
 
     Shape expected by Responses API (not Chat Completions):
     {"type":"function", "name": str, "parameters": {...}, "description": str?, "strict": bool?}
+    Marks only truly required parameters (no defaults) as required.
     """
     out: List[Dict[str, Any]] = []
     for fn in tools or []:
@@ -82,21 +83,30 @@ def _build_function_tools(tools: Iterable[Callable[..., Any]]) -> List[Dict[str,
             continue
         try:
             sig = inspect.signature(fn)
-            params = {
-                name: {"type": "string"}
-                for name, p in sig.parameters.items()
-                if name != "wrapper"  # our runtime injects this
-            }
+            props: Dict[str, Any] = {}
+            required: List[str] = []
+            for name, p in sig.parameters.items():
+                if name == "wrapper":  # our runtime injects this
+                    continue
+                props[name] = {"type": "string"}
+                if p.default is inspect._empty and p.kind in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.KEYWORD_ONLY,
+                ):
+                    required.append(name)
         except (TypeError, ValueError):
-            params = {}
+            props = {}
+            required = []
+
         schema = {
             "type": "function",
             "name": fn.__name__,
             "description": (inspect.getdoc(fn) or "").strip() or None,
             "parameters": {
                 "type": "object",
-                "properties": params,
-                "required": list(params.keys()),
+                "properties": props,
+                "required": required,
                 "additionalProperties": True,
             },
             "strict": False,
@@ -202,11 +212,14 @@ class _Run:
                 # Ensure response is persisted so we can chain tool outputs
                 req["store"] = True
             else:
-                # Chained call: either use conversation or previous_response_id
+                # Chained call: must reference the specific prior response
+                # Always provide previous_response_id so the function_call_output
+                # attaches to the correct pending function call.
+                if prev_id:
+                    req["previous_response_id"] = prev_id
+                # Optionally include conversation for continuity, but do not rely on it
                 if self.conversation_id:
                     req["conversation"] = self.conversation_id
-                else:
-                    req["previous_response_id"] = prev_id
                 # Responses API expects a string or an array of input items
                 # for chaining tool outputs we send an array with one
                 # function_call_output item.
@@ -299,6 +312,24 @@ class _Run:
                                 except Exception as tool_err:
                                     result = {"error": str(tool_err)}
 
+                                # Emit a synthetic event with the tool result so UIs
+                                # can surface something even if the model doesn't follow up
+                                loop.call_soon_threadsafe(
+                                    q.put_nowait,
+                                    RawResponseEvent(
+                                        "raw_response_event",
+                                        type(
+                                            "E",
+                                            (),
+                                            {
+                                                "type": "function.tool_result",
+                                                "name": name,
+                                                "result": result,
+                                            },
+                                        )(),
+                                    ),
+                                )
+
                                 output_item = {
                                     "type": "function_call_output",
                                     "call_id": call_id,
@@ -327,30 +358,54 @@ class _Run:
                 prev = None
                 payload = None
                 ignore_prev = False
+                chain_retries = 0
                 from openai import BadRequestError
                 while True:
                     try:
                         if mode == "initial":
-                            action, data = run_stream(True, prev_id=None, tool_output=None, ignore_prev=ignore_prev)
+                            action, data = run_stream(
+                                True, prev_id=None, tool_output=None, ignore_prev=ignore_prev
+                            )
                         elif mode == "chain":
-                            action, data = run_stream(False, prev_id=prev, tool_output=payload)
+                            action, data = run_stream(
+                                False, prev_id=prev, tool_output=payload
+                            )
                         else:
                             break
                     except BadRequestError as e:
                         msg = str(e).lower()
-                        if mode == "initial" and ("previous response" in msg or "previous_response_id" in msg):
+                        if mode == "initial" and (
+                            "previous response" in msg or "previous_response_id" in msg
+                        ):
                             ignore_prev = True
                             mode = "initial"
                             continue
+                        # Occasionally, chaining by previous_response_id can race with store.
+                        # Retry a few times before giving up.
+                        if mode == "chain" and (
+                            "previous response" in msg
+                            or "previous_response_id" in msg
+                            or "not found" in msg
+                        ):
+                            if chain_retries < 3:
+                                chain_retries += 1
+                                import time as _t
+
+                                _t.sleep(0.25 * chain_retries)
+                                mode = "chain"
+                                continue
+                            else:
+                                # Give up chaining; close the stream gracefully
+                                break
                         else:
                             raise
-                    else:
-                        break
 
+                    # Process action from run_stream
                     if action == "chain":
                         prev = data["previous_response_id"]
                         payload = data["input"]
                         mode = "chain"
+                        chain_retries = 0
                         continue
                     elif action in {"done", "closed"}:
                         break
